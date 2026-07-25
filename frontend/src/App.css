@@ -1,0 +1,49 @@
+/* Mobile-first responsive layout (360px+ viewport) */
+.app-container {
+  min-width: 360px;
+  max-width: 768px;
+  margin: 0 auto;
+  padding: 0 16px;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.page {
+  flex: 1;
+  padding: 16px 0;
+}
+
+.page h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.page p {
+  color: #6b7280;
+  font-size: 0.875rem;
+}
+
+/* Responsive breakpoints */
+@media (min-width: 480px) {
+  .app-container {
+    padding: 0 24px;
+  }
+}
+
+@media (min-width: 768px) {
+  .app-container {
+    padding: 0 32px;
+  }
+}
+
+/* Spinner animation for loading states */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

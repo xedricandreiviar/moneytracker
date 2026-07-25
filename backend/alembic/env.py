@@ -15,7 +15,8 @@ import app.models  # noqa: F401
 config = context.config
 
 # Override sqlalchemy.url with the application's database URL
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# Escape % characters for configparser interpolation
+config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
 
 # Set up loggers from config file
 if config.config_file_name is not None:
@@ -47,13 +48,9 @@ def run_migrations_online() -> None:
 
     Creates an engine and associates a connection with the migration context.
     """
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    from app.database import engine
 
-    with connectable.connect() as connection:
+    with engine.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():

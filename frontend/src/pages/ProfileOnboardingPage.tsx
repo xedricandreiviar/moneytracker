@@ -1,5 +1,7 @@
 /**
- * ProfileOnboardingPage - Prompts the user to fill in their lifestyle profile.
+ * ProfileOnboardingPage - Two-step onboarding:
+ * Step 1: Lifestyle profile (employment, commute, vehicle)
+ * Step 2: Initial balance ("How much money do you have right now?")
  * Displayed after locale onboarding completes, gates main dashboard access
  * until profile_completed is true.
  * Requirements: 15.1, 15.2, 15.3
@@ -7,6 +9,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { useLocale } from '../contexts/LocaleContext';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
@@ -49,11 +52,17 @@ const VEHICLE_OPTIONS: VehicleOption[] = [
 
 export default function ProfileOnboardingPage() {
   const navigate = useNavigate();
+  const { locale } = useLocale();
+  const [step, setStep] = useState<'profile' | 'balance'>('profile');
   const [employmentStatus, setEmploymentStatus] = useState<EmploymentStatus | null>(null);
   const [commuteMethod, setCommuteMethod] = useState<CommuteMethod | null>(null);
   const [vehicleType, setVehicleType] = useState<VehicleType | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Balance step state
+  const [balanceInput, setBalanceInput] = useState('');
+  const [balanceError, setBalanceError] = useState<string | null>(null);
 
   const showVehicleType = commuteMethod === 'own_vehicle';
   const isFormValid =
@@ -61,15 +70,17 @@ export default function ProfileOnboardingPage() {
     commuteMethod !== null &&
     (!showVehicleType || vehicleType !== null);
 
+  const currencySymbol = locale?.currency_symbol || '₱';
+  const decimalPrecision = locale?.decimal_precision ?? 2;
+
   function handleCommuteChange(method: CommuteMethod) {
     setCommuteMethod(method);
-    // Clear vehicle type when switching away from own_vehicle
     if (method !== 'own_vehicle') {
       setVehicleType(null);
     }
   }
 
-  async function handleSubmit() {
+  async function handleProfileSubmit() {
     if (!isFormValid) return;
 
     setIsSubmitting(true);
@@ -81,12 +92,109 @@ export default function ProfileOnboardingPage() {
         commute_method: commuteMethod,
         vehicle_type: showVehicleType ? vehicleType : null,
       });
-      navigate('/', { replace: true });
+      // Move to balance step
+      setStep('balance');
     } catch {
       setError('Failed to save your profile. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  async function handleBalanceSubmit() {
+    const trimmed = balanceInput.trim();
+    if (!trimmed) {
+      setBalanceError('Please enter an amount');
+      return;
+    }
+
+    const parsed = parseFloat(trimmed.replace(/,/g, ''));
+    if (isNaN(parsed) || parsed < 0) {
+      setBalanceError('Please enter a valid positive number');
+      return;
+    }
+
+    // Convert to smallest currency unit
+    const multiplier = Math.pow(10, decimalPrecision);
+    const amountSmallestUnit = Math.round(parsed * multiplier);
+
+    setIsSubmitting(true);
+    setBalanceError(null);
+
+    try {
+      // Log initial balance as a "received" transaction
+      await axios.post(`${API_BASE}/api/transactions`, {
+        amount_smallest_unit: amountSmallestUnit,
+        direction: 'received',
+        currency_code: locale?.currency_code || 'PHP',
+        note: 'Initial balance',
+      });
+      navigate('/', { replace: true });
+    } catch {
+      setBalanceError('Failed to save. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  function handleSkipBalance() {
+    navigate('/', { replace: true });
+  }
+
+  if (step === 'balance') {
+    return (
+      <div className="page page-profile-onboarding" style={styles.container}>
+        <div style={styles.content}>
+          <h1 style={styles.title}>How much money do you have right now?</h1>
+          <p style={styles.subtitle}>
+            This sets your starting balance so we can track your spending accurately.
+          </p>
+
+          <div style={styles.balanceInputWrapper}>
+            <span style={styles.currencySymbol}>{currencySymbol}</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={balanceInput}
+              onChange={(e) => {
+                setBalanceInput(e.target.value);
+                setBalanceError(null);
+              }}
+              placeholder="0.00"
+              style={styles.balanceInput}
+              aria-label="Initial balance amount"
+              autoFocus
+            />
+          </div>
+
+          {balanceError && (
+            <p style={styles.error} role="alert">
+              {balanceError}
+            </p>
+          )}
+
+          <button
+            onClick={handleBalanceSubmit}
+            disabled={isSubmitting || !balanceInput.trim()}
+            style={{
+              ...styles.continueButton,
+              ...(isSubmitting || !balanceInput.trim() ? styles.continueButtonDisabled : {}),
+            }}
+            type="button"
+          >
+            {isSubmitting ? 'Saving...' : 'Continue'}
+          </button>
+
+          <button
+            onClick={handleSkipBalance}
+            style={styles.skipButton}
+            type="button"
+          >
+            Skip for now
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -169,7 +277,7 @@ export default function ProfileOnboardingPage() {
         )}
 
         <button
-          onClick={handleSubmit}
+          onClick={handleProfileSubmit}
           disabled={!isFormValid || isSubmitting}
           style={{
             ...styles.continueButton,
@@ -267,5 +375,40 @@ const styles: Record<string, React.CSSProperties> = {
   continueButtonDisabled: {
     background: '#93c5fd',
     cursor: 'not-allowed',
+  },
+  balanceInputWrapper: {
+    display: 'flex',
+    alignItems: 'center',
+    width: '100%',
+    border: '2px solid #e0e0e0',
+    borderRadius: '8px',
+    padding: '0.75rem 1rem',
+    background: '#fff',
+    marginTop: '1rem',
+  },
+  currencySymbol: {
+    fontSize: '1.5rem',
+    fontWeight: '700',
+    color: '#374151',
+    marginRight: '0.5rem',
+  },
+  balanceInput: {
+    flex: 1,
+    border: 'none',
+    outline: 'none',
+    fontSize: '1.5rem',
+    fontWeight: '700',
+    color: '#111827',
+    background: 'transparent',
+  },
+  skipButton: {
+    marginTop: '0.75rem',
+    background: 'none',
+    border: 'none',
+    color: '#6b7280',
+    fontSize: '0.9rem',
+    cursor: 'pointer',
+    padding: '0.5rem 1rem',
+    textDecoration: 'underline',
   },
 };

@@ -20,6 +20,9 @@ Daily Money Tracker is a mobile-first personal finance application that makes da
 - **Spending_Spike**: A category spend that exceeds 150% of the rolling 4-week average for that category
 - **User_Locale**: The user's configured country and associated regional settings including currency, date format, number format, and week start day
 - **Currency**: The monetary unit determined by the user's country (e.g., USD, EUR, JPY, INR), including its ISO 4217 code, symbol, decimal precision, decimal separator, and thousands separator
+- **Lifestyle_Profile**: The user's answers to the personalization questionnaire (employment status, commute method, vehicle type) stored on their User record
+- **Category_Weight**: A percentage-based allocation for a budget category, per user, summing to 100% across all categories
+- **Weight_Rules_Table**: A predefined mapping of profile answer combinations to default category weight distributions
 
 ## Requirements
 
@@ -208,3 +211,53 @@ Daily Money Tracker is a mobile-first personal finance application that makes da
 8. IF the user changes their country in settings, THEN THE Tracker SHALL retain all existing transaction data and display historical amounts using the originally stored Currency code and formatting, while applying the new User_Locale settings to new transactions and UI elements going forward.
 9. WHEN a weekly Budget_Period is active, THE Tracker SHALL use the week start day defined by the User_Locale (e.g., Sunday for US, Monday for most European countries) to determine week boundaries.
 10. IF the user has not completed onboarding country selection, THEN THE Tracker SHALL not allow access to the main interface until a country is selected.
+
+### Requirement 15: User Profile and Personalization Onboarding
+
+**User Story:** As a user, I want to provide my lifestyle details during onboarding, so that the app can personalize budget categories and weights to match my actual living situation.
+
+#### Acceptance Criteria
+
+1. WHEN the user completes locale onboarding (Requirement 14), THE Tracker SHALL prompt the user to fill in a Lifestyle_Profile questionnaire before granting access to the main dashboard.
+2. THE Tracker SHALL capture at minimum: employment/income status (student, working, or both), and commute method (public transit, own vehicle, walking/biking, or none/remote) in the Lifestyle_Profile questionnaire.
+3. WHEN the user selects "own vehicle" as commute method, THE Tracker SHALL additionally prompt the user to specify a vehicle type (motorcycle or car).
+4. WHEN the user submits the Lifestyle_Profile questionnaire, THE Tracker SHALL store the profile answers on the User record.
+5. WHEN the user navigates to Settings, THE Tracker SHALL allow the user to view and edit the Lifestyle_Profile.
+6. WHEN the Lifestyle_Profile is created or edited, THE Tracker SHALL trigger a recomputation of the user's Category_Weight set (per Requirement 16).
+
+### Requirement 16: Category Weight Allocation
+
+**User Story:** As a user, I want my budget categories to be weighted based on my lifestyle, so that budget limits reflect my actual needs rather than arbitrary defaults.
+
+#### Acceptance Criteria
+
+1. THE Tracker SHALL maintain a set of Category_Weight entries per user, where each entry represents a percentage allocation for a budget category and all entries for a user sum to exactly 100%.
+2. THE Tracker SHALL include at minimum the following categories in the Category_Weight set: Savings, Wants, Transportation, and Food.
+3. WHEN a user does not yet have custom Category_Weight entries, THE Tracker SHALL derive a default weight set from the Weight_Rules_Table keyed on the user's Lifestyle_Profile answers (employment status, commute method, and vehicle type).
+4. WHEN Category_Weight entries are assigned (default or manual), THE Tracker SHALL retain those entries unchanged until the user explicitly edits their Lifestyle_Profile or manually adjusts a category weight.
+5. WHEN the user manually overrides an individual Category_Weight from Settings, THE Tracker SHALL redistribute the remaining categories proportionally so that all weights continue to sum to exactly 100%.
+6. THE Tracker SHALL validate that Category_Weight entries sum to exactly 100% before persisting any changes to the database.
+7. THE Tracker SHALL store each Category_Weight entry with a flag indicating whether the weight was manually overridden by the user or derived from the Weight_Rules_Table.
+
+### Requirement 17: Dynamic Budget Recalculation on Income Change
+
+**User Story:** As a user, I want my budget limits to automatically adjust when I receive income, so that my budgets always reflect my current available funds.
+
+#### Acceptance Criteria
+
+1. WHEN a transaction is logged with direction = received (income), THE Tracker SHALL recompute each active budget's absolute limit as the corresponding Category_Weight percentage multiplied by the current available balance.
+2. WHEN a budget recalculation occurs, THE Tracker SHALL update only the absolute peso amounts (limit_smallest_unit) derived from the Category_Weight percentages — the stored percentage weights SHALL remain unchanged.
+3. WHEN a budget's absolute limit changes due to recalculation, THE Tracker SHALL log the change with a reason containing the income amount and source transaction identifier, and surface the change via the existing BudgetCard and notification patterns established in Requirement 8.
+4. THE budget recalculation logic SHALL extend the existing BudgetService (task 7.1) — the pro-rated projection and on-track/off-track logic from Requirement 7 SHALL remain unchanged; only the budget limit becomes dynamic instead of static.
+
+### Requirement 18: Unified Personalized Dashboard
+
+**User Story:** As a user, I want a single dashboard that shows my financial picture for any time period with personalized insights, so that I can quickly understand my spending without navigating multiple screens.
+
+#### Acceptance Criteria
+
+1. THE existing HomePage SHALL be extended with a period selector dropdown offering three options: Daily, Weekly, and Monthly.
+2. WHEN the user changes the period selector, THE Tracker SHALL display scoped to the selected period: current balance, total income, total expenses, and the per-category budget list with progress indicators.
+3. THE dashboard SHALL reuse the existing BudgetCard component and InsightEngine aggregation methods (from Requirement 5) for period-scoped data — the implementation SHALL NOT duplicate aggregation logic already built for periodic summaries.
+4. THE dashboard SHALL display one personalization-aware insight at the top, driven by the user's Lifestyle_Profile from Requirement 15 (e.g., a savings-focused tip for users with high Savings weight, or a spending-focused tip for users approaching their Wants limit).
+5. THE dashboard visual style SHALL remain consistent with the existing BudgetCard component style — no new design system components SHALL be introduced.

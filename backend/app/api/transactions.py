@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.models.user_locale import UserLocale
+from app.models.transaction import TransactionDirection
 from app.schemas.transaction import (
     CategoryOverrideRequest,
     CategoryOverrideResponse,
@@ -36,6 +37,7 @@ from app.services.transaction_service import (
     suggest_category,
 )
 from app.services.daily_task_service import auto_complete_on_transaction
+from app.services.budget_service import check_budget_thresholds, recalculate_on_income
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
 
@@ -139,6 +141,18 @@ def create_transaction_endpoint(
             user_id=user.id,
             transaction_date_local=transaction.transaction_date_local,
         )
+
+    # Requirement 17.1, 17.3: Recalculate budget limits on income and trigger
+    # threshold notifications for any budgets whose limits crossed 80%/100%.
+    if transaction.direction == TransactionDirection.received:
+        change_logs = recalculate_on_income(
+            db=db,
+            user_id=user.id,
+            income_transaction=transaction,
+        )
+        # Check budget thresholds for any budgets that had their limits changed
+        for change_log in change_logs:
+            check_budget_thresholds(db, change_log.budget_id)
 
     return _transaction_to_response(transaction, db)
 

@@ -2,14 +2,17 @@
 
 Handles budget creation with validation, uniqueness enforcement,
 period record tracking, auto-rollover, projection calculations,
-and budget threshold notifications.
+budget threshold notifications, and dynamic budget recalculation on income.
 """
 
 import logging
+import math
 from dataclasses import dataclass
 from datetime import date, timedelta
+from decimal import Decimal
 from typing import Optional
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.budget import (
@@ -18,7 +21,11 @@ from app.models.budget import (
     BudgetPeriodStatus,
     BudgetPeriodType,
 )
+from app.models.budget_limit_change_log import BudgetLimitChangeLog
+from app.models.category import Category
+from app.models.category_weight import CategoryWeight
 from app.models.notification import Notification
+from app.models.transaction import Transaction, TransactionDirection
 from app.services.locale_service import LocaleConfig, get_week_boundaries
 
 logger = logging.getLogger(__name__)
@@ -592,3 +599,125 @@ def update_budget_limit(
     db.commit()
     db.refresh(budget)
     return budget
+
+
+def recalculate_on_income(
+    db: Session,
+    user_id: int,
+    income_transaction: Transaction,
+) -> list[BudgetLimitChangeLog]:
+    """Recalculate active budget limits when income is received.
+
+    For each active budget with a matching CategoryWeight entry, computes:
+        new_limit = floor(weight_percentage / 100 × available_balance)
+
+    Only updates budgets where new_limit differs from the current limit.
+    Creates a BudgetLimitChangeLog entry atomically with each budget limit update.
+
+    Does NOT modify stored CategoryWeight percentages.
+
+    Args:
+        db: Database session.
+        user_id: The user's ID.
+        income_transaction: The income Transaction that triggered recalculation.
+
+    Returns:
+        List of BudgetLimitChangeLog entries created for changed budgets.
+    """
+    # Compute available_balance = sum(received) - sum(spent) across all user transactions
+    received_total = (
+        db.query(func.coalesce(func.sum(Transaction.amount_smallest_unit), 0))
+        .filter(
+            Transaction.user_id == user_id,
+            Transaction.direction == TransactionDirection.received,
+        )
+        .scalar()
+    )
+
+    spent_total = (
+        db.query(func.coalesce(func.sum(Transaction.amount_smallest_unit), 0))
+        .filter(
+            Transaction.user_id == user_id,
+            Transaction.direction == TransactionDirection.spent,
+        )
+        .scalar()
+    )
+
+    available_balance = received_total - spent_total
+
+    # Get all active budgets for this user that have a category
+    active_budgets = (
+        db.query(Budget)
+        .filter(
+            Budget.user_id == user_id,
+            Budget.is_active == True,
+        )
+        .all()
+    )
+
+    # Get all CategoryWeight entries for this user, keyed by category_name
+    weights = (
+        db.query(CategoryWeight)
+        .filter(CategoryWeight.user_id == user_id)
+        .all()
+    )
+    weight_by_name: dict[str, Decimal] = {
+        w.category_name: w.weight_percentage for w in weights
+    }
+
+    change_logs: list[BudgetLimitChangeLog] = []
+
+    for budget in active_budgets:
+        # Determine the category name for this budget
+        if budget.category_id is None:
+            # Overall budget — skip (no single weight applies)
+            continue
+
+        category = (
+            db.query(Category)
+            .filter(Category.id == budget.category_id)
+            .first()
+        )
+        if category is None:
+            continue
+
+        # Check if there's a matching CategoryWeight entry
+        weight_percentage = weight_by_name.get(category.name)
+        if weight_percentage is None:
+            continue
+
+        # Calculate new limit: floor(weight_percentage / 100 × available_balance)
+        new_limit = math.floor(
+            float(weight_percentage) / 100.0 * available_balance
+        )
+
+        old_limit = budget.limit_smallest_unit
+
+        # Only update if the limit actually changed
+        if new_limit == old_limit:
+            continue
+
+        # Update budget limit and create change log atomically
+        budget.limit_smallest_unit = new_limit
+
+        reason = (
+            f"Income received: {income_transaction.amount_smallest_unit} "
+            f"from transaction #{income_transaction.id}"
+        )
+
+        change_log = BudgetLimitChangeLog(
+            budget_id=budget.id,
+            old_limit_smallest_unit=old_limit,
+            new_limit_smallest_unit=new_limit,
+            reason=reason,
+            source_transaction_id=income_transaction.id,
+        )
+        db.add(change_log)
+        change_logs.append(change_log)
+
+    if change_logs:
+        db.commit()
+        for log in change_logs:
+            db.refresh(log)
+
+    return change_logs

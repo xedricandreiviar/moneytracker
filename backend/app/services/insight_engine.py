@@ -1,8 +1,8 @@
 """InsightEngine for generating periodic spending summaries and spike detection.
 
 Provides weekly and monthly summary generation with category breakdowns,
-percentage changes vs prior periods, locale-aware formatting, and spending
-spike detection with suppression tracking.
+percentage changes vs prior periods, locale-aware formatting, spending
+spike detection with suppression tracking, and period-scoped dashboard summaries.
 """
 
 from dataclasses import dataclass, field
@@ -608,3 +608,344 @@ def detect_spending_spikes(
             db.commit()
 
     return spikes
+
+
+# --- Period-Scoped Dashboard Summary ---
+
+
+@dataclass
+class PeriodSummary:
+    """Unified summary structure for daily, weekly, or monthly periods.
+
+    Maps to the PeriodSummaryResponse schema for the dashboard API.
+    """
+
+    period_type: str  # "daily", "weekly", or "monthly"
+    total_income: int  # total received in smallest currency unit
+    total_expenses: int  # total spent in smallest currency unit
+    balance: int  # total_income - total_expenses
+    category_breakdown: list[dict] = field(default_factory=list)
+    # Each item: {"category_name": str, "total_spent": int, "total_received": int}
+
+
+def get_period_summary(
+    db: Session,
+    user_id: int,
+    period_type: str,
+    reference_date: date,
+    locale: LocaleConfig,
+) -> PeriodSummary:
+    """Get a period-scoped spending summary for the dashboard.
+
+    Delegates to existing aggregation methods for weekly/monthly periods.
+    For the daily period, performs a direct query for the reference_date.
+
+    Requirements: 18.2, 18.3
+
+    Args:
+        db: Database session.
+        user_id: The user's ID.
+        period_type: One of "daily", "weekly", or "monthly".
+        reference_date: The date to scope the summary around.
+        locale: User's locale config (used for week boundary calculation).
+
+    Returns:
+        PeriodSummary with aggregated data for the requested period.
+
+    Raises:
+        ValueError: If period_type is not one of "daily", "weekly", or "monthly".
+    """
+    if period_type not in ("daily", "weekly", "monthly"):
+        raise ValueError(
+            f"period_type must be 'daily', 'weekly', or 'monthly', got '{period_type}'"
+        )
+
+    if period_type == "daily":
+        return _get_daily_summary(db, user_id, reference_date)
+    elif period_type == "weekly":
+        return _get_weekly_period_summary(db, user_id, reference_date, locale)
+    else:  # monthly
+        return _get_monthly_period_summary(db, user_id, reference_date, locale)
+
+
+def _get_daily_summary(
+    db: Session,
+    user_id: int,
+    reference_date: date,
+) -> PeriodSummary:
+    """Aggregate transactions for a single day grouped by category.
+
+    Args:
+        db: Database session.
+        user_id: The user's ID.
+        reference_date: The specific date to summarize.
+
+    Returns:
+        PeriodSummary for the daily period.
+    """
+    # Use existing helper — date_from and date_to are the same day
+    overall_totals = _get_period_overall_totals(db, user_id, reference_date, reference_date)
+    category_totals = _get_period_totals_by_category(db, user_id, reference_date, reference_date)
+
+    breakdown = [
+        {
+            "category_name": cat_name,
+            "total_spent": totals["spent"],
+            "total_received": totals["received"],
+        }
+        for cat_name, totals in sorted(category_totals.items())
+    ]
+
+    total_income = overall_totals["received"]
+    total_expenses = overall_totals["spent"]
+
+    return PeriodSummary(
+        period_type="daily",
+        total_income=total_income,
+        total_expenses=total_expenses,
+        balance=total_income - total_expenses,
+        category_breakdown=breakdown,
+    )
+
+
+def _get_weekly_period_summary(
+    db: Session,
+    user_id: int,
+    reference_date: date,
+    locale: LocaleConfig,
+) -> PeriodSummary:
+    """Delegate to generate_weekly_summary and convert to PeriodSummary.
+
+    Uses the reference_date to determine which week to summarize by finding
+    the week_end date for the week containing reference_date.
+
+    Args:
+        db: Database session.
+        user_id: The user's ID.
+        reference_date: A date within the week to summarize.
+        locale: User's locale config.
+
+    Returns:
+        PeriodSummary for the weekly period.
+    """
+    # Find the week boundaries containing reference_date
+    _, week_end = get_week_boundaries(reference_date, locale)
+
+    weekly = generate_weekly_summary(db, user_id, week_end, locale)
+
+    breakdown = [
+        {
+            "category_name": ct.category_name,
+            "total_spent": ct.total_spent,
+            "total_received": ct.total_received,
+        }
+        for ct in weekly.category_totals
+    ]
+
+    return PeriodSummary(
+        period_type="weekly",
+        total_income=weekly.total_received,
+        total_expenses=weekly.total_spent,
+        balance=weekly.net,
+        category_breakdown=breakdown,
+    )
+
+
+def get_personalized_insight(
+    db: Session,
+    user_id: int,
+    profile: dict,
+    weights: list,
+) -> str:
+    """Generate a personalized contextual tip based on the user's dominant category and spending.
+
+    Selects a tip based on the user's highest-weight category:
+    - Savings: savings-focused tip if savings goal not met
+    - Wants: spending moderation tip if approaching limit
+    - Transportation: vehicle-specific tip if user is a vehicle owner
+    - Default: generic encouragement based on overall on-track status
+
+    Requirements: 18.4
+
+    Args:
+        db: Database session.
+        user_id: The user's ID.
+        profile: Dict with profile data (employment_status, commute_method, vehicle_type, profile_completed).
+        weights: List of CategoryWeight model instances for the user.
+
+    Returns:
+        A contextual tip string personalized to the user's lifestyle and spending.
+    """
+    from app.services.budget_service import (
+        calculate_budget_projection,
+        get_active_period_record,
+        get_user_budgets,
+    )
+    from app.models.category import Category
+
+    if not weights:
+        return "Set up your lifestyle profile to get personalized budget insights."
+
+    # Find the highest-weight category
+    highest_weight = max(weights, key=lambda w: w.weight_percentage)
+    dominant_category = highest_weight.category_name
+
+    # Get active budgets for checking on-track status
+    active_budgets = get_user_budgets(db, user_id, active_only=True)
+
+    # Helper: find a budget matching a category name
+    def _find_budget_for_category(category_name: str):
+        for budget in active_budgets:
+            if budget.category_id is not None:
+                category = (
+                    db.query(Category)
+                    .filter(Category.id == budget.category_id)
+                    .first()
+                )
+                if category and category.name.lower() == category_name.lower():
+                    return budget
+        return None
+
+    # Helper: check if a budget is approaching its limit (>=80% spent)
+    def _is_approaching_limit(budget) -> bool:
+        period = get_active_period_record(db, budget.id)
+        if period is None:
+            return False
+        return period.spent_smallest_unit >= budget.limit_smallest_unit * 0.8
+
+    # Helper: check if a budget is off-track
+    def _is_off_track(budget) -> bool:
+        period = get_active_period_record(db, budget.id)
+        if period is None:
+            return False
+        projection = calculate_budget_projection(budget, period)
+        return projection.status == "off_track"
+
+    # Generate tip based on dominant category
+    if dominant_category.lower() == "savings":
+        savings_budget = _find_budget_for_category("Savings")
+        if savings_budget:
+            period = get_active_period_record(db, savings_budget.id)
+            if period and period.spent_smallest_unit < savings_budget.limit_smallest_unit:
+                # Savings goal not fully met — encourage more saving
+                remaining = savings_budget.limit_smallest_unit - period.spent_smallest_unit
+                return (
+                    "Your savings goal is your top priority. "
+                    "You're making progress — keep setting aside a little each day to stay on track."
+                )
+            else:
+                return "Great job prioritizing savings! You've met your savings target for this period."
+        else:
+            return (
+                "Savings is your top priority. "
+                "Consider creating a savings budget to track your progress toward your goal."
+            )
+
+    elif dominant_category.lower() == "wants":
+        wants_budget = _find_budget_for_category("Wants")
+        if wants_budget and _is_approaching_limit(wants_budget):
+            return (
+                "You're approaching your Wants budget limit. "
+                "Consider holding off on non-essential purchases for the rest of this period."
+            )
+        elif wants_budget and _is_off_track(wants_budget):
+            return (
+                "Your Wants spending is projected to exceed your budget. "
+                "Try to cut back on discretionary spending to stay within your limit."
+            )
+        else:
+            return (
+                "Wants is your largest budget category. "
+                "Stay mindful of impulse purchases to keep your spending balanced."
+            )
+
+    elif dominant_category.lower() == "transportation":
+        # Transportation tip — tailored to vehicle owners
+        vehicle_type = profile.get("vehicle_type")
+        commute_method = profile.get("commute_method")
+
+        transport_budget = _find_budget_for_category("Transportation")
+        if commute_method == "own_vehicle" and vehicle_type:
+            vehicle_label = "car" if vehicle_type == "car" else "motorcycle"
+            if transport_budget and _is_approaching_limit(transport_budget):
+                return (
+                    f"Your {vehicle_label} expenses are adding up — you're nearing your transportation budget. "
+                    f"Consider carpooling or combining trips to save on fuel this period."
+                )
+            else:
+                return (
+                    f"Transportation is your biggest budget category as a {vehicle_label} owner. "
+                    f"Keep an eye on fuel and maintenance costs to stay within budget."
+                )
+        else:
+            if transport_budget and _is_approaching_limit(transport_budget):
+                return (
+                    "Your transportation spending is nearing its limit. "
+                    "Look for ways to reduce commute costs for the rest of this period."
+                )
+            else:
+                return (
+                    "Transportation is your top spending category. "
+                    "Track your commute costs closely to avoid overspending."
+                )
+
+    else:
+        # Default: generic encouragement based on overall on-track status
+        off_track_count = 0
+        for budget in active_budgets:
+            if _is_off_track(budget):
+                off_track_count += 1
+
+        if off_track_count == 0:
+            return "You're doing great! All your budgets are on track. Keep up the good habits."
+        elif off_track_count == 1:
+            return (
+                "One of your budgets is off track. "
+                "Review your spending breakdown to see where you can adjust."
+            )
+        else:
+            return (
+                f"{off_track_count} of your budgets are off track. "
+                "Take a moment to review your spending and identify areas to cut back."
+            )
+
+
+def _get_monthly_period_summary(
+    db: Session,
+    user_id: int,
+    reference_date: date,
+    locale: LocaleConfig,
+) -> PeriodSummary:
+    """Delegate to generate_monthly_summary and convert to PeriodSummary.
+
+    Uses the reference_date's month and year to determine the month to summarize.
+
+    Args:
+        db: Database session.
+        user_id: The user's ID.
+        reference_date: A date within the month to summarize.
+        locale: User's locale config.
+
+    Returns:
+        PeriodSummary for the monthly period.
+    """
+    monthly = generate_monthly_summary(
+        db, user_id, reference_date.month, reference_date.year, locale
+    )
+
+    breakdown = [
+        {
+            "category_name": ct.category_name,
+            "total_spent": ct.total_spent,
+            "total_received": ct.total_received,
+        }
+        for ct in monthly.category_totals
+    ]
+
+    return PeriodSummary(
+        period_type="monthly",
+        total_income=monthly.total_received,
+        total_expenses=monthly.total_spent,
+        balance=monthly.net,
+        category_breakdown=breakdown,
+    )

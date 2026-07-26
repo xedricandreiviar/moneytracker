@@ -5,4 +5,7 @@ export { default as InsightsPage } from './InsightsPage';
 export { default as AIChatPage } from './AIChatPage';
 export { default as AICoachingPage } from './AICoachingPage';
 export { default as SettingsPage } from './SettingsPage';
+export { default as WeightSettings } from './WeightSettings';
 export { default as OnboardingPage } from './OnboardingPage';
+export { default as ProfileOnboardingPage } from './ProfileOnboardingPage';
+export { default as ProfileSettings } from './ProfileSettings';

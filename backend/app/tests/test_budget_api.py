@@ -63,7 +63,7 @@ def client(test_db):
 @pytest.fixture
 def test_user(test_db):
     """Create a test user in the database."""
-    user = User(id=1, timezone="UTC", current_streak=0, version=1)
+    user = User(id=1, timezone="UTC", current_streak=0, version=1, profile_completed=True)
     test_db.add(user)
     test_db.commit()
     test_db.refresh(user)

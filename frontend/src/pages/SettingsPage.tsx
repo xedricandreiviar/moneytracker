@@ -5,9 +5,10 @@
  * Allows toggling push notifications independently of in-app notifications.
  * Defaults both to enabled on first use (Req 12.4).
  * Displays guidance when push permission is denied (Req 12.5).
- * Requirements: 12.3, 12.4, 12.5, 14.7, 14.8
+ * Requirements: 12.3, 12.4, 12.5, 14.7, 14.8, 15.5
  */
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useLocale } from '../contexts/LocaleContext';
 
@@ -54,6 +55,7 @@ function setStorageItem(key: string, value: string): void {
 
 export default function SettingsPage() {
   const { locale, setLocale } = useLocale();
+  const navigate = useNavigate();
 
   // Country change state
   const [selectedCountry, setSelectedCountry] = useState<string>(locale?.country_code ?? '');
@@ -323,6 +325,40 @@ export default function SettingsPage() {
           <p style={styles.registeringText}>Registering push subscription...</p>
         )}
       </section>
+
+      {/* Lifestyle Profile Section (Req 15.5) */}
+      <section style={styles.section} aria-labelledby="profile-heading">
+        <h2 id="profile-heading" style={styles.sectionHeading}>Lifestyle Profile</h2>
+        <p style={styles.countryDescription}>
+          Your lifestyle details are used to personalize budget category weights.
+        </p>
+        <button
+          type="button"
+          onClick={() => navigate('/settings/profile')}
+          style={styles.profileLink}
+          aria-label="Edit lifestyle profile"
+        >
+          <span style={styles.profileLinkText}>Edit Lifestyle Profile</span>
+          <span style={styles.profileLinkArrow} aria-hidden="true">→</span>
+        </button>
+      </section>
+
+      {/* Category Weights Section (Req 16.4, 16.5, 16.7) */}
+      <section style={styles.section} aria-labelledby="weights-heading">
+        <h2 id="weights-heading" style={styles.sectionHeading}>Category Weights</h2>
+        <p style={styles.countryDescription}>
+          View and adjust how your budget is allocated across spending categories.
+        </p>
+        <button
+          type="button"
+          onClick={() => navigate('/settings/weights')}
+          style={styles.profileLink}
+          aria-label="Manage category weights"
+        >
+          <span style={styles.profileLinkText}>Manage Category Weights</span>
+          <span style={styles.profileLinkArrow} aria-hidden="true">→</span>
+        </button>
+      </section>
     </div>
   );
 }
@@ -492,5 +528,26 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '0.8rem',
     color: '#6b7280',
     fontStyle: 'italic',
+  },
+  profileLink: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '0.875rem 1rem',
+    borderRadius: '10px',
+    background: '#f9fafb',
+    border: '1px solid #e5e7eb',
+    cursor: 'pointer',
+    width: '100%',
+    textAlign: 'left' as const,
+  },
+  profileLinkText: {
+    fontSize: '0.9rem',
+    fontWeight: '600',
+    color: '#111827',
+  },
+  profileLinkArrow: {
+    fontSize: '1rem',
+    color: '#6b7280',
   },
 };

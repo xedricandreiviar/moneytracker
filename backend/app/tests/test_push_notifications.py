@@ -61,7 +61,7 @@ def db_session(db_engine):
 @pytest.fixture
 def test_user(db_session: Session) -> User:
     """Create a test user."""
-    user = User(id=1, timezone="UTC")
+    user = User(id=1, timezone="UTC", profile_completed=True)
     db_session.add(user)
     db_session.commit()
     return user
@@ -85,7 +85,7 @@ def client(db_engine):
     session = TestingSessionLocal()
     user = session.query(User).filter(User.id == 1).first()
     if not user:
-        user = User(id=1, timezone="UTC")
+        user = User(id=1, timezone="UTC", profile_completed=True)
         session.add(user)
         session.commit()
     session.close()

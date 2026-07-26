@@ -379,6 +379,280 @@ LOCALE_CONFIGS = {
 ```
 
 
+## Components and Interfaces — Requirements 15–18 Additions
+
+### New Frontend Components
+
+```mermaid
+graph LR
+    subgraph "New Pages (Req 15-18)"
+        PROFILE_ONBOARD[ProfileOnboardingPage]
+        PROFILE_SETTINGS[ProfileSettings]
+        WEIGHT_SETTINGS[WeightSettings]
+    end
+
+    subgraph "Extended Pages"
+        HOME_EXT[HomePage — period selector]
+    end
+
+    subgraph "Reused Components"
+        BUDGET_CARD_REUSE[BudgetCard]
+        CURRENCY_REUSE[CurrencyDisplay]
+    end
+
+    PROFILE_ONBOARD --> HOME_EXT
+    HOME_EXT --> BUDGET_CARD_REUSE
+    HOME_EXT --> CURRENCY_REUSE
+    WEIGHT_SETTINGS --> CURRENCY_REUSE
+```
+
+#### ProfileOnboardingPage
+- Displayed after locale onboarding completes (gates main dashboard access)
+- Form fields: employment_status (student | working | both), commute_method (public_transit | own_vehicle | walking_biking | none_remote)
+- Conditional field: vehicle_type (motorcycle | car) shown only when commute_method = own_vehicle
+- On submit: stores profile on User record, triggers CategoryWeightService recomputation
+
+#### ProfileSettings
+- Accessible from SettingsPage
+- Displays current Lifestyle_Profile values
+- Allows editing any field, with the same conditional vehicle_type logic
+- On save: updates User record and triggers weight recomputation
+
+#### WeightSettings
+- Accessible from SettingsPage
+- Displays all CategoryWeight entries with current percentages
+- Allows manual override of individual weights
+- Shows redistribution preview before confirmation
+- Flags manually-overridden entries visually
+
+#### Extended HomePage (Period Selector)
+- Adds a period selector dropdown at the top: Daily | Weekly | Monthly
+- Below the selector: current balance, total income, total expenses for the selected period
+- Per-category budget list using existing BudgetCard component
+- One personalization-aware insight banner driven by Lifestyle_Profile
+- Reuses InsightEngine aggregation methods — no parallel logic
+
+### New Backend Services
+
+#### ProfileService
+```
+get_profile(user_id: int) → LifestyleProfile
+update_profile(user_id: int, profile: LifestyleProfileInput) → LifestyleProfile
+```
+- Reads/writes employment_status, commute_method, vehicle_type on the User model
+- On update, calls `CategoryWeightService.recompute_weights(user_id)`
+
+#### CategoryWeightService
+```
+get_weights(user_id: int) → List[CategoryWeight]
+recompute_weights(user_id: int) → List[CategoryWeight]
+override_weight(user_id: int, category_name: str, new_percentage: Decimal) → List[CategoryWeight]
+validate_weights(weights: List[CategoryWeight]) → bool  # sum == 100%
+derive_defaults(profile: LifestyleProfile) → List[CategoryWeight]
+```
+- `recompute_weights`: Reads user profile, looks up Weight_Rules_Table, replaces non-manually-overridden weights with new defaults, redistributes to maintain 100% sum
+- `override_weight`: Sets the specified category to the new percentage, redistributes remaining non-overridden categories proportionally, marks the overridden category with `is_manual_override = True`
+- `derive_defaults`: Pure function mapping profile answers → default percentages via the Weight_Rules_Table
+- `validate_weights`: Asserts all entries sum to exactly 100% (integer basis points or Decimal to avoid float issues)
+
+#### Extended BudgetService (Dynamic Recalculation)
+```
+recalculate_on_income(user_id: int, income_transaction: Transaction) → List[BudgetLimitChange]
+```
+- Called when a transaction with direction=received is logged
+- For each active budget: new_limit = category_weight_percentage × available_balance
+- Creates BudgetLimitChangeLog entries with reason and source_transaction_id
+- Does NOT modify stored weight percentages
+- Existing projection/on-track logic (Property 10) continues to work unchanged with the new dynamic limit
+
+#### Extended InsightEngine (Period-Scoped Queries)
+```
+get_period_summary(user_id: int, period_type: str, reference_date: date) → PeriodSummary
+get_personalized_insight(user_id: int, profile: LifestyleProfile, weights: List[CategoryWeight]) → str
+```
+- `get_period_summary`: Delegates to existing `generate_weekly_summary` / `generate_monthly_summary` for weekly/monthly; adds a new daily aggregation path for the "Daily" period
+- `get_personalized_insight`: Selects a contextual tip based on the user's highest-weight category and current spending patterns (e.g., savings tip if Savings weight is highest and savings goal not met)
+
+### New API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/profile` | Get current lifestyle profile |
+| PUT | `/api/profile` | Create or update lifestyle profile |
+| GET | `/api/weights` | Get user's category weight entries |
+| PUT | `/api/weights/{category_name}` | Manually override a single category weight |
+| POST | `/api/weights/reset` | Reset weights to profile-derived defaults |
+| GET | `/api/dashboard/summary?period={daily\|weekly\|monthly}` | Get period-scoped dashboard data |
+| GET | `/api/dashboard/insight` | Get personalized insight for dashboard |
+
+## Data Models — Requirements 15–18 Additions
+
+### New and Extended Models
+
+```mermaid
+erDiagram
+    User ||--o{ CategoryWeight : has
+    User ||--o{ Budget : creates
+    Budget ||--o{ BudgetLimitChangeLog : tracks_changes
+
+    User {
+        int id PK
+        string timezone
+        int current_streak
+        datetime streak_last_updated_utc
+        string employment_status
+        string commute_method
+        string vehicle_type
+        bool profile_completed
+        datetime created_at_utc
+    }
+
+    CategoryWeight {
+        int id PK
+        int user_id FK
+        string category_name
+        decimal weight_percentage
+        bool is_manual_override
+        datetime created_at_utc
+        datetime updated_at_utc
+    }
+
+    BudgetLimitChangeLog {
+        int id PK
+        int budget_id FK
+        int old_limit_smallest_unit
+        int new_limit_smallest_unit
+        string reason
+        int source_transaction_id FK
+        datetime created_at_utc
+    }
+```
+
+### Key Model Details (New)
+
+**User.employment_status**: Enum of `student`, `working`, `both`. Nullable until profile onboarding completes.
+
+**User.commute_method**: Enum of `public_transit`, `own_vehicle`, `walking_biking`, `none_remote`. Nullable until profile onboarding completes.
+
+**User.vehicle_type**: Enum of `motorcycle`, `car`. Nullable; only populated when commute_method = own_vehicle.
+
+**User.profile_completed**: Boolean flag. When False, the app gates access to the main dashboard after locale onboarding.
+
+**CategoryWeight.category_name**: String matching a budget category name (e.g., "Savings", "Wants", "Transportation", "Food"). Unique per user.
+
+**CategoryWeight.weight_percentage**: Decimal (precision 4, scale 2) representing the percentage (e.g., 25.00 for 25%). All entries for a user must sum to exactly 100.00.
+
+**CategoryWeight.is_manual_override**: Boolean. True if the user explicitly set this weight; False if derived from the Weight_Rules_Table.
+
+**BudgetLimitChangeLog.reason**: String describing why the limit changed (e.g., "Income received: 50000 from transaction #123").
+
+**BudgetLimitChangeLog.source_transaction_id**: FK to the income Transaction that triggered the recalculation.
+
+### Weight Rules Table Structure
+
+The Weight_Rules_Table is a static lookup mapping profile answer combinations to default category weight distributions. The exact percentages are **pending user confirmation** — the structure below shows the lookup keys and category slots:
+
+```python
+# PLACEHOLDER — exact percentages to be confirmed by user
+WEIGHT_RULES_TABLE: Dict[Tuple[str, str, Optional[str]], Dict[str, Decimal]] = {
+    # Key: (employment_status, commute_method, vehicle_type)
+    # Value: { category_name: weight_percentage }
+    
+    ("student", "public_transit", None): {
+        "Savings": Decimal("___"),       # TBD
+        "Wants": Decimal("___"),         # TBD
+        "Transportation": Decimal("___"),# TBD
+        "Food": Decimal("___"),          # TBD
+    },
+    ("student", "own_vehicle", "motorcycle"): {
+        "Savings": Decimal("___"),
+        "Wants": Decimal("___"),
+        "Transportation": Decimal("___"),
+        "Food": Decimal("___"),
+    },
+    ("student", "own_vehicle", "car"): {
+        "Savings": Decimal("___"),
+        "Wants": Decimal("___"),
+        "Transportation": Decimal("___"),
+        "Food": Decimal("___"),
+    },
+    ("student", "walking_biking", None): {
+        "Savings": Decimal("___"),
+        "Wants": Decimal("___"),
+        "Transportation": Decimal("___"),
+        "Food": Decimal("___"),
+    },
+    ("student", "none_remote", None): {
+        "Savings": Decimal("___"),
+        "Wants": Decimal("___"),
+        "Transportation": Decimal("___"),
+        "Food": Decimal("___"),
+    },
+    ("working", "public_transit", None): {
+        "Savings": Decimal("___"),
+        "Wants": Decimal("___"),
+        "Transportation": Decimal("___"),
+        "Food": Decimal("___"),
+    },
+    ("working", "own_vehicle", "motorcycle"): {
+        "Savings": Decimal("___"),
+        "Wants": Decimal("___"),
+        "Transportation": Decimal("___"),
+        "Food": Decimal("___"),
+    },
+    ("working", "own_vehicle", "car"): {
+        "Savings": Decimal("___"),
+        "Wants": Decimal("___"),
+        "Transportation": Decimal("___"),
+        "Food": Decimal("___"),
+    },
+    ("working", "walking_biking", None): {
+        "Savings": Decimal("___"),
+        "Wants": Decimal("___"),
+        "Transportation": Decimal("___"),
+        "Food": Decimal("___"),
+    },
+    ("working", "none_remote", None): {
+        "Savings": Decimal("___"),
+        "Wants": Decimal("___"),
+        "Transportation": Decimal("___"),
+        "Food": Decimal("___"),
+    },
+    ("both", "public_transit", None): {
+        "Savings": Decimal("___"),
+        "Wants": Decimal("___"),
+        "Transportation": Decimal("___"),
+        "Food": Decimal("___"),
+    },
+    ("both", "own_vehicle", "motorcycle"): {
+        "Savings": Decimal("___"),
+        "Wants": Decimal("___"),
+        "Transportation": Decimal("___"),
+        "Food": Decimal("___"),
+    },
+    ("both", "own_vehicle", "car"): {
+        "Savings": Decimal("___"),
+        "Wants": Decimal("___"),
+        "Transportation": Decimal("___"),
+        "Food": Decimal("___"),
+    },
+    ("both", "walking_biking", None): {
+        "Savings": Decimal("___"),
+        "Wants": Decimal("___"),
+        "Transportation": Decimal("___"),
+        "Food": Decimal("___"),
+    },
+    ("both", "none_remote", None): {
+        "Savings": Decimal("___"),
+        "Wants": Decimal("___"),
+        "Transportation": Decimal("___"),
+        "Food": Decimal("___"),
+    },
+}
+```
+
+> ⚠️ **ACTION REQUIRED**: The exact percentage values for each profile combination need to be confirmed. The structure and lookup keys are final; only the numeric values are placeholders.
+
 ## Correctness Properties
 
 *A property is a characteristic or behavior that should hold true across all valid executions of a system — essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees.*
@@ -503,6 +777,48 @@ LOCALE_CONFIGS = {
 
 **Validates: Requirements 14.8**
 
+### Property 21: Profile persistence and weight recomputation trigger
+
+*For any* valid Lifestyle_Profile combination (employment_status ∈ {student, working, both}, commute_method ∈ {public_transit, own_vehicle, walking_biking, none_remote}, and vehicle_type ∈ {motorcycle, car, None}), submitting or updating the profile shall persist the exact values to the User record AND trigger a recomputation that produces a CategoryWeight set summing to exactly 100%.
+
+**Validates: Requirements 15.4, 15.6**
+
+### Property 22: Category weight sum invariant
+
+*For any* sequence of operations on a user's CategoryWeight entries (initial derivation, profile change recomputation, or manual override), the sum of all weight_percentage values for that user shall always equal exactly 100% at every observable state.
+
+**Validates: Requirements 16.1, 16.6**
+
+### Property 23: Default weight derivation includes minimum categories
+
+*For any* valid Lifestyle_Profile, deriving default weights from the Weight_Rules_Table shall produce a CategoryWeight set containing at minimum entries for "Savings", "Wants", "Transportation", and "Food", with each entry having a positive weight_percentage and all entries summing to 100%.
+
+**Validates: Requirements 16.2, 16.3**
+
+### Property 24: Manual weight override redistributes proportionally and flags correctly
+
+*For any* set of CategoryWeight entries summing to 100% and any single category override to a new valid percentage (0 < new_pct < 100), the system shall redistribute the remaining non-overridden categories proportionally so the total remains 100%, mark the overridden category's is_manual_override flag as True, and leave non-overridden categories' flags unchanged.
+
+**Validates: Requirements 16.5, 16.7**
+
+### Property 25: Budget recalculation on income preserves weight percentages
+
+*For any* income transaction (direction = received) and any set of active budgets with associated CategoryWeight entries, the budget recalculation shall update each budget's limit_smallest_unit to equal floor(weight_percentage / 100 × available_balance) while leaving all stored CategoryWeight percentage values unchanged.
+
+**Validates: Requirements 17.1, 17.2**
+
+### Property 26: Budget limit change audit logging
+
+*For any* budget whose limit_smallest_unit changes due to an income-triggered recalculation, the system shall create exactly one BudgetLimitChangeLog entry with the correct old_limit, new_limit, a reason string containing the income amount, and the source_transaction_id matching the income transaction.
+
+**Validates: Requirements 17.3**
+
+### Property 27: Period-scoped dashboard aggregation
+
+*For any* set of transactions and any period selection (daily, weekly, monthly), the dashboard summary shall report total_income equal to the sum of "received" transactions within the selected period boundaries, total_expenses equal to the sum of "spent" transactions within the same boundaries, and per-category budget progress consistent with the existing BudgetCard projection logic applied to the period-scoped data.
+
+**Validates: Requirements 18.2**
+
 ## Error Handling
 
 ### Frontend Error Handling
@@ -527,6 +843,11 @@ LOCALE_CONFIGS = {
 | Duplicate budget creation attempt | Return 409 Conflict with message identifying the existing active budget |
 | Scheduler job failure | Log error; retry on next scheduler tick; alert monitoring if consecutive failures exceed threshold |
 | Locale config not found for country | Return 400 with list of supported countries (should not happen with frontend validation) |
+| Weight redistribution fails (no eligible categories) | Return 422 with message explaining that all other categories are manually overridden; suggest resetting weights first |
+| Weight sum validation failure | Return 422 with message indicating weights do not sum to 100% — should never reach API if frontend validates correctly |
+| Profile missing for weight derivation | Return 400 indicating profile must be completed before weights can be computed |
+| Budget recalculation with zero available balance | Set all budget limits to 0; log the event; surface notification via existing budget threshold pattern |
+| Weight_Rules_Table lookup miss (unknown profile combination) | Fall back to equal distribution across minimum categories; log warning for monitoring |
 
 ### Data Integrity Safeguards
 
@@ -535,6 +856,9 @@ LOCALE_CONFIGS = {
 - Streak modifications use optimistic locking (version column) to prevent race conditions
 - Budget threshold notifications use idempotency keys (budget_id + period + threshold) to guarantee at-most-once delivery
 - Spike suppression records prevent duplicate alerts within the same category+week
+- CategoryWeight entries validated to sum to exactly 100% before any persist operation (Req 16.6)
+- BudgetLimitChangeLog entries created atomically with budget limit updates (Req 17.3)
+- Profile onboarding gate prevents dashboard access until profile_completed = True (Req 15.1)
 
 ## Testing Strategy
 
@@ -549,6 +873,12 @@ Unit tests cover specific scenarios, edge cases, and integration points:
 - **Notification preferences**: Default enabled, independent toggle, push permission denial fallback
 - **AI unavailability**: LLM timeout handling, error message display
 - **Database retry logic**: Successful retry on transient failure, exhausted retries behavior
+- **Profile onboarding gate**: Block dashboard access until profile_completed = True; allow after submission (Req 15.1)
+- **Conditional vehicle type prompt**: Show vehicle_type field only when commute_method = own_vehicle (Req 15.3)
+- **Profile settings view/edit**: Display current profile, allow editing, trigger weight recomputation on save (Req 15.5)
+- **Period selector UI**: Verify Daily/Weekly/Monthly options exist and switch dashboard data (Req 18.1)
+- **Personalized insight display**: Verify insight banner appears with contextual tip (Req 18.4)
+- **Weight override edge case**: Override to a value that leaves zero remaining for redistribution (Req 16.5 error case)
 
 ### Property-Based Tests
 
@@ -574,6 +904,13 @@ Each property test is tagged with: `Feature: daily-money-tracker, Property {N}: 
 - Property 16: Timestamp UTC round-trip
 - Property 17: Locale configuration completeness
 - Property 19: Week boundary calculation
+- Property 21: Profile persistence and weight recomputation trigger
+- Property 22: Category weight sum invariant
+- Property 23: Default weight derivation includes minimum categories
+- Property 24: Manual weight override redistributes proportionally and flags correctly
+- Property 25: Budget recalculation on income preserves weight percentages
+- Property 26: Budget limit change audit logging
+- Property 27: Period-scoped dashboard aggregation
 
 **Frontend (fast-check):**
 - Property 1: Amount formatting round-trip (CurrencyDisplay + AmountInput)
@@ -588,6 +925,10 @@ Each property test is tagged with: `Feature: daily-money-tracker, Property {N}: 
 - Push notification delivery pipeline
 - LLM API integration (prompt assembly, response parsing)
 - Offline queue sync on reconnection
+- Profile submission → weight derivation → budget creation flow (Req 15 + 16 + 17)
+- Income transaction → budget recalculation → change log creation → notification (Req 17)
+- Period selector switch → correct aggregation scoping (Req 18)
+- Weight override → redistribution → budget limit recalculation cascade (Req 16 + 17)
 
 ### End-to-End Tests
 
@@ -784,6 +1125,189 @@ def suggest_category(user_id: int, note: Optional[str], amount: Optional[int]) -
     return None
 ```
 
+### Weight Redistribution Algorithm (Requirement 16)
+
+```python
+from decimal import Decimal, ROUND_HALF_UP
+
+def override_weight(
+    weights: List[CategoryWeight],
+    target_category: str,
+    new_percentage: Decimal
+) -> List[CategoryWeight]:
+    """
+    Overrides a single category's weight and redistributes the remaining
+    categories proportionally to maintain a 100% total.
+    
+    Steps:
+    1. Validate new_percentage is in (0, 100) exclusive
+    2. Compute the difference: delta = new_percentage - old_percentage
+    3. Distribute -delta across non-overridden categories proportionally
+    4. Mark the target category as is_manual_override = True
+    5. Validate sum == 100% (handle rounding via largest-remainder method)
+    """
+    target = next(w for w in weights if w.category_name == target_category)
+    old_percentage = target.weight_percentage
+    delta = new_percentage - old_percentage
+    
+    # Categories eligible for redistribution (non-overridden, excluding target)
+    redistributable = [
+        w for w in weights
+        if w.category_name != target_category and not w.is_manual_override
+    ]
+    
+    if not redistributable:
+        raise ValueError("Cannot redistribute: no non-overridden categories available")
+    
+    redistributable_total = sum(w.weight_percentage for w in redistributable)
+    
+    if redistributable_total == Decimal("0"):
+        raise ValueError("Cannot redistribute: remaining categories have zero total weight")
+    
+    # Apply proportional redistribution
+    for w in redistributable:
+        proportion = w.weight_percentage / redistributable_total
+        adjustment = (delta * proportion).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        w.weight_percentage -= adjustment
+    
+    # Set target to exact new value
+    target.weight_percentage = new_percentage
+    target.is_manual_override = True
+    
+    # Fix rounding: apply remainder to largest non-overridden category
+    total = sum(w.weight_percentage for w in weights)
+    if total != Decimal("100.00"):
+        remainder = Decimal("100.00") - total
+        largest = max(redistributable, key=lambda w: w.weight_percentage)
+        largest.weight_percentage += remainder
+    
+    assert sum(w.weight_percentage for w in weights) == Decimal("100.00")
+    return weights
+```
+
+### Budget Recalculation on Income (Requirement 17)
+
+```python
+def recalculate_on_income(
+    user_id: int,
+    income_transaction: Transaction,
+    active_budgets: List[Budget],
+    weights: List[CategoryWeight]
+) -> List[BudgetLimitChange]:
+    """
+    Recomputes budget limits when income is received.
+    
+    Formula: new_limit = floor(weight_percentage / 100 * available_balance)
+    
+    available_balance = sum of all "received" transactions - sum of all "spent" transactions
+    (or can be defined as current cumulative balance — implementation choice)
+    
+    Steps:
+    1. Compute available_balance after the income transaction
+    2. For each active budget with a matching CategoryWeight entry:
+       a. old_limit = budget.limit_smallest_unit
+       b. new_limit = floor(weight.weight_percentage / 100 * available_balance)
+       c. If old_limit != new_limit: update budget, create change log
+    3. Weight percentages are NEVER modified
+    """
+    available_balance = compute_available_balance(user_id)
+    changes = []
+    
+    weight_map = {w.category_name: w.weight_percentage for w in weights}
+    
+    for budget in active_budgets:
+        category_name = get_category_name(budget.category_id)
+        if category_name not in weight_map:
+            continue
+        
+        weight_pct = weight_map[category_name]
+        old_limit = budget.limit_smallest_unit
+        new_limit = int(weight_pct / Decimal("100") * available_balance)
+        
+        if new_limit != old_limit:
+            budget.limit_smallest_unit = new_limit
+            
+            log = BudgetLimitChangeLog(
+                budget_id=budget.id,
+                old_limit_smallest_unit=old_limit,
+                new_limit_smallest_unit=new_limit,
+                reason=f"Income received: {income_transaction.amount_smallest_unit} "
+                       f"from transaction #{income_transaction.id}",
+                source_transaction_id=income_transaction.id,
+            )
+            changes.append(log)
+    
+    return changes
+```
+
+### Period-Scoped Dashboard Aggregation (Requirement 18)
+
+```python
+def get_period_summary(
+    user_id: int,
+    period_type: str,  # "daily" | "weekly" | "monthly"
+    reference_date: date,
+    locale: LocaleConfig
+) -> PeriodSummary:
+    """
+    Returns aggregated financial data scoped to the selected period.
+    
+    Reuses InsightEngine methods for weekly/monthly.
+    Adds a daily aggregation path.
+    
+    Does NOT duplicate logic — delegates to existing generate_weekly_summary
+    and generate_monthly_summary for those period types.
+    """
+    if period_type == "daily":
+        transactions = get_transactions_for_date(user_id, reference_date)
+        total_income = sum(t.amount_smallest_unit for t in transactions if t.direction == "received")
+        total_expenses = sum(t.amount_smallest_unit for t in transactions if t.direction == "spent")
+        category_totals = aggregate_by_category(transactions)
+        
+        return PeriodSummary(
+            period_type="daily",
+            period_start=reference_date,
+            period_end=reference_date,
+            total_income=total_income,
+            total_expenses=total_expenses,
+            balance=total_income - total_expenses,
+            category_breakdown=category_totals,
+        )
+    
+    elif period_type == "weekly":
+        week_start, week_end = get_week_boundaries(reference_date, locale)
+        # Delegate to existing InsightEngine
+        summary = generate_weekly_summary(user_id, week_end)
+        return PeriodSummary.from_weekly_summary(summary)
+    
+    elif period_type == "monthly":
+        # Delegate to existing InsightEngine
+        summary = generate_monthly_summary(user_id, reference_date.month, reference_date.year)
+        return PeriodSummary.from_monthly_summary(summary)
+
+
+def get_personalized_insight(
+    user_id: int,
+    profile: LifestyleProfile,
+    weights: List[CategoryWeight]
+) -> str:
+    """
+    Generates a single contextual insight based on the user's profile and spending.
+    
+    Logic:
+    1. Find the user's highest-weight category
+    2. Compare current spending in that category against the budget limit
+    3. Generate an appropriate tip:
+       - If Savings is highest and user is underspending budget: encourage savings
+       - If Wants is highest and approaching limit: suggest moderation
+       - If Transportation is highest (vehicle owner): suggest fuel-saving tips
+       - Default: generic encouragement based on overall on-track status
+    """
+    highest_weight = max(weights, key=lambda w: w.weight_percentage)
+    # ... implementation produces a single insight string
+    return insight_text
+```
+
 ## AI Integration
 
 ### Architecture
@@ -961,3 +1485,71 @@ flowchart TD
 ```
 
 **Key principle**: The locale configuration is resolved once (on country selection or change) and stored. All components read from this stored configuration rather than re-resolving. Historical transactions carry their own `currency_code` so they remain correctly displayable even after a locale change.
+
+## Profile & Weight Flow (Requirements 15–18)
+
+The personalization flow extends the existing onboarding and connects profiles to budgets:
+
+```mermaid
+flowchart TD
+    LOCALE_DONE[Locale onboarding complete] --> PROFILE_GATE{profile_completed?}
+    PROFILE_GATE -- No --> PROFILE_FORM[ProfileOnboardingPage]
+    PROFILE_GATE -- Yes --> DASHBOARD[HomePage with period selector]
+    
+    PROFILE_FORM --> SUBMIT[User submits profile]
+    SUBMIT --> STORE_PROFILE[Store on User record]
+    STORE_PROFILE --> DERIVE_WEIGHTS[CategoryWeightService.derive_defaults]
+    DERIVE_WEIGHTS --> RULES[Weight_Rules_Table lookup]
+    RULES --> PERSIST_WEIGHTS[Persist CategoryWeight entries]
+    PERSIST_WEIGHTS --> SET_FLAG[profile_completed = True]
+    SET_FLAG --> DASHBOARD
+    
+    DASHBOARD --> PERIOD_SELECT[User selects period]
+    PERIOD_SELECT --> INSIGHT_ENGINE[InsightEngine.get_period_summary]
+    INSIGHT_ENGINE --> BUDGET_CARDS[Render BudgetCards with period data]
+    DASHBOARD --> INSIGHT_BANNER[get_personalized_insight]
+```
+
+### Income → Budget Recalculation Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant API as FastAPI
+    participant TxSvc as TransactionService
+    participant BudgetSvc as BudgetService
+    participant WeightSvc as CategoryWeightService
+    participant DB as MySQL
+
+    User->>API: POST /api/transactions (direction=received)
+    API->>TxSvc: create_transaction(...)
+    TxSvc->>DB: Persist transaction
+    TxSvc->>BudgetSvc: recalculate_on_income(user_id, transaction)
+    BudgetSvc->>WeightSvc: get_weights(user_id)
+    WeightSvc-->>BudgetSvc: List[CategoryWeight]
+    BudgetSvc->>DB: Compute available_balance
+    BudgetSvc->>BudgetSvc: For each budget: new_limit = weight% × balance
+    BudgetSvc->>DB: Update budget limits + create BudgetLimitChangeLog
+    BudgetSvc->>DB: Create notifications for changed budgets
+    BudgetSvc-->>API: List[BudgetLimitChange]
+    API-->>User: Transaction confirmation + budget update indicator
+```
+
+### Weight Override Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant API as FastAPI
+    participant WeightSvc as CategoryWeightService
+    participant DB as MySQL
+
+    User->>API: PUT /api/weights/Transportation {new_percentage: 30}
+    API->>WeightSvc: override_weight(user_id, "Transportation", 30.00)
+    WeightSvc->>DB: Load current weights
+    WeightSvc->>WeightSvc: Redistribute remaining categories proportionally
+    WeightSvc->>WeightSvc: Validate sum == 100%
+    WeightSvc->>DB: Persist updated weights (mark Transportation as manual override)
+    WeightSvc-->>API: Updated List[CategoryWeight]
+    API-->>User: New weight distribution
+```

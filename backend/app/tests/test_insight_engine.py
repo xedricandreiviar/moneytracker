@@ -483,3 +483,320 @@ class TestGenerateMonthlySummary:
         assert "Uncategorized" in cat_map
         assert cat_map["Uncategorized"].total_spent == 300
         db.close()
+
+
+class TestGetPeriodSummary:
+    """Tests for get_period_summary (Req 18.2, 18.3)."""
+
+    def test_daily_period_basic_totals(self):
+        """Daily period should aggregate only the reference_date transactions."""
+        from app.services.insight_engine import get_period_summary
+
+        db = _create_test_session()
+        user = _create_user(db)
+
+        # Transactions on the reference date
+        _create_transaction(db, user.id, 1000, "spent", date(2024, 3, 15))
+        _create_transaction(db, user.id, 500, "spent", date(2024, 3, 15))
+        _create_transaction(db, user.id, 3000, "received", date(2024, 3, 15))
+
+        # Transactions on other dates (should be excluded)
+        _create_transaction(db, user.id, 9999, "spent", date(2024, 3, 14))
+        _create_transaction(db, user.id, 8888, "spent", date(2024, 3, 16))
+
+        summary = get_period_summary(db, user.id, "daily", date(2024, 3, 15), US_LOCALE)
+
+        assert summary.period_type == "daily"
+        assert summary.total_expenses == 1500
+        assert summary.total_income == 3000
+        assert summary.balance == 1500  # 3000 - 1500
+        db.close()
+
+    def test_daily_period_category_breakdown(self):
+        """Daily period should group transactions by category."""
+        from app.services.insight_engine import get_period_summary
+
+        db = _create_test_session()
+        user = _create_user(db)
+
+        food = _create_category(db, user.id, "Food")
+        transport = _create_category(db, user.id, "Transport")
+
+        _create_transaction(db, user.id, 800, "spent", date(2024, 3, 15), food.id)
+        _create_transaction(db, user.id, 200, "spent", date(2024, 3, 15), transport.id)
+        _create_transaction(db, user.id, 500, "received", date(2024, 3, 15), food.id)
+
+        summary = get_period_summary(db, user.id, "daily", date(2024, 3, 15), US_LOCALE)
+
+        cat_map = {item["category_name"]: item for item in summary.category_breakdown}
+        assert "Food" in cat_map
+        assert cat_map["Food"]["total_spent"] == 800
+        assert cat_map["Food"]["total_received"] == 500
+        assert "Transport" in cat_map
+        assert cat_map["Transport"]["total_spent"] == 200
+        assert cat_map["Transport"]["total_received"] == 0
+        db.close()
+
+    def test_daily_period_zero_activity(self):
+        """Daily period with no transactions should return zero totals."""
+        from app.services.insight_engine import get_period_summary
+
+        db = _create_test_session()
+        user = _create_user(db)
+
+        summary = get_period_summary(db, user.id, "daily", date(2024, 3, 15), US_LOCALE)
+
+        assert summary.period_type == "daily"
+        assert summary.total_expenses == 0
+        assert summary.total_income == 0
+        assert summary.balance == 0
+        assert summary.category_breakdown == []
+        db.close()
+
+    def test_weekly_period_delegates_to_generate_weekly_summary(self):
+        """Weekly period should produce same totals as generate_weekly_summary."""
+        from app.services.insight_engine import get_period_summary
+
+        db = _create_test_session()
+        user = _create_user(db)
+
+        food = _create_category(db, user.id, "Food")
+
+        # US locale: week starts Sunday. Jan 7, 2024 is Sunday.
+        # Week containing Jan 9 is Jan 7 - Jan 13
+        _create_transaction(db, user.id, 1000, "spent", date(2024, 1, 9), food.id)
+        _create_transaction(db, user.id, 2000, "received", date(2024, 1, 10))
+
+        summary = get_period_summary(db, user.id, "weekly", date(2024, 1, 9), US_LOCALE)
+
+        assert summary.period_type == "weekly"
+        assert summary.total_expenses == 1000
+        assert summary.total_income == 2000
+        assert summary.balance == 1000  # 2000 - 1000
+        cat_map = {item["category_name"]: item for item in summary.category_breakdown}
+        assert "Food" in cat_map
+        assert cat_map["Food"]["total_spent"] == 1000
+        db.close()
+
+    def test_monthly_period_delegates_to_generate_monthly_summary(self):
+        """Monthly period should produce same totals as generate_monthly_summary."""
+        from app.services.insight_engine import get_period_summary
+
+        db = _create_test_session()
+        user = _create_user(db)
+
+        food = _create_category(db, user.id, "Food")
+
+        _create_transaction(db, user.id, 5000, "spent", date(2024, 2, 5), food.id)
+        _create_transaction(db, user.id, 3000, "spent", date(2024, 2, 20), food.id)
+        _create_transaction(db, user.id, 20000, "received", date(2024, 2, 15))
+
+        summary = get_period_summary(db, user.id, "monthly", date(2024, 2, 10), US_LOCALE)
+
+        assert summary.period_type == "monthly"
+        assert summary.total_expenses == 8000
+        assert summary.total_income == 20000
+        assert summary.balance == 12000  # 20000 - 8000
+        cat_map = {item["category_name"]: item for item in summary.category_breakdown}
+        assert "Food" in cat_map
+        assert cat_map["Food"]["total_spent"] == 8000
+        db.close()
+
+    def test_invalid_period_type_raises_error(self):
+        """Invalid period_type should raise ValueError."""
+        import pytest
+
+        from app.services.insight_engine import get_period_summary
+
+        db = _create_test_session()
+        user = _create_user(db)
+
+        with pytest.raises(ValueError, match="period_type must be"):
+            get_period_summary(db, user.id, "yearly", date(2024, 1, 1), US_LOCALE)
+        db.close()
+
+
+class TestGetPersonalizedInsight:
+    """Tests for get_personalized_insight (Req 18.4)."""
+
+    def _create_budget_with_period(
+        self,
+        db: Session,
+        user_id: int,
+        category_id: int,
+        limit: int,
+        spent: int,
+    ):
+        """Helper to create a budget with an active period record."""
+        from app.models.budget import Budget, BudgetPeriodRecord, BudgetPeriodStatus, BudgetPeriodType
+
+        budget = Budget(
+            user_id=user_id,
+            category_id=category_id,
+            period_type=BudgetPeriodType.monthly,
+            limit_smallest_unit=limit,
+            currency_code="USD",
+            is_active=True,
+        )
+        db.add(budget)
+        db.flush()
+
+        period = BudgetPeriodRecord(
+            budget_id=budget.id,
+            period_start=date(2024, 3, 1),
+            period_end=date(2024, 3, 31),
+            spent_smallest_unit=spent,
+            status=BudgetPeriodStatus.active,
+        )
+        db.add(period)
+        db.commit()
+        db.refresh(budget)
+        return budget
+
+    def _create_weight(
+        self,
+        db: Session,
+        user_id: int,
+        category_name: str,
+        percentage: float,
+    ):
+        """Helper to create a CategoryWeight entry."""
+        from decimal import Decimal
+        from app.models.category_weight import CategoryWeight
+
+        weight = CategoryWeight(
+            user_id=user_id,
+            category_name=category_name,
+            weight_percentage=Decimal(str(percentage)),
+            is_manual_override=False,
+        )
+        db.add(weight)
+        db.commit()
+        db.refresh(weight)
+        return weight
+
+    def test_no_weights_returns_setup_message(self):
+        """When no weights exist, should return a setup prompt."""
+        from app.services.insight_engine import get_personalized_insight
+
+        db = _create_test_session()
+        user = _create_user(db)
+
+        profile = {"employment_status": "working", "commute_method": "none_remote", "vehicle_type": None, "profile_completed": True}
+        result = get_personalized_insight(db, user.id, profile, [])
+
+        assert "Set up your lifestyle profile" in result
+        db.close()
+
+    def test_savings_dominant_no_budget(self):
+        """Savings dominant without a Savings budget should suggest creating one."""
+        from app.services.insight_engine import get_personalized_insight
+
+        db = _create_test_session()
+        user = _create_user(db)
+
+        w_savings = self._create_weight(db, user.id, "Savings", 40.00)
+        w_wants = self._create_weight(db, user.id, "Wants", 30.00)
+        w_food = self._create_weight(db, user.id, "Food", 30.00)
+
+        profile = {"employment_status": "working", "commute_method": "none_remote", "vehicle_type": None, "profile_completed": True}
+        weights = [w_savings, w_wants, w_food]
+
+        result = get_personalized_insight(db, user.id, profile, weights)
+
+        assert "savings" in result.lower() or "Savings" in result
+        assert "budget" in result.lower()
+        db.close()
+
+    def test_savings_dominant_goal_not_met(self):
+        """Savings dominant with budget not fully met should encourage saving."""
+        from app.services.insight_engine import get_personalized_insight
+
+        db = _create_test_session()
+        user = _create_user(db)
+
+        savings_cat = _create_category(db, user.id, "Savings")
+        self._create_budget_with_period(db, user.id, savings_cat.id, limit=50000, spent=20000)
+
+        w_savings = self._create_weight(db, user.id, "Savings", 40.00)
+        w_wants = self._create_weight(db, user.id, "Wants", 30.00)
+        w_food = self._create_weight(db, user.id, "Food", 30.00)
+
+        profile = {"employment_status": "working", "commute_method": "none_remote", "vehicle_type": None, "profile_completed": True}
+        weights = [w_savings, w_wants, w_food]
+
+        result = get_personalized_insight(db, user.id, profile, weights)
+
+        assert "savings" in result.lower()
+        assert "priority" in result.lower() or "progress" in result.lower()
+        db.close()
+
+    def test_wants_dominant_approaching_limit(self):
+        """Wants dominant and approaching limit should warn about spending."""
+        from app.services.insight_engine import get_personalized_insight
+
+        db = _create_test_session()
+        user = _create_user(db)
+
+        wants_cat = _create_category(db, user.id, "Wants")
+        # 85% spent - approaching limit
+        self._create_budget_with_period(db, user.id, wants_cat.id, limit=10000, spent=8500)
+
+        w_savings = self._create_weight(db, user.id, "Savings", 20.00)
+        w_wants = self._create_weight(db, user.id, "Wants", 50.00)
+        w_food = self._create_weight(db, user.id, "Food", 30.00)
+
+        profile = {"employment_status": "student", "commute_method": "walking_biking", "vehicle_type": None, "profile_completed": True}
+        weights = [w_savings, w_wants, w_food]
+
+        result = get_personalized_insight(db, user.id, profile, weights)
+
+        assert "wants" in result.lower() or "Wants" in result
+        assert "limit" in result.lower() or "non-essential" in result.lower()
+        db.close()
+
+    def test_transportation_dominant_vehicle_owner(self):
+        """Transportation dominant for a vehicle owner should give vehicle-specific tip."""
+        from app.services.insight_engine import get_personalized_insight
+
+        db = _create_test_session()
+        user = _create_user(db)
+
+        transport_cat = _create_category(db, user.id, "Transportation")
+        self._create_budget_with_period(db, user.id, transport_cat.id, limit=20000, spent=5000)
+
+        w_savings = self._create_weight(db, user.id, "Savings", 20.00)
+        w_transport = self._create_weight(db, user.id, "Transportation", 45.00)
+        w_food = self._create_weight(db, user.id, "Food", 35.00)
+
+        profile = {"employment_status": "working", "commute_method": "own_vehicle", "vehicle_type": "car", "profile_completed": True}
+        weights = [w_savings, w_transport, w_food]
+
+        result = get_personalized_insight(db, user.id, profile, weights)
+
+        assert "car" in result.lower()
+        assert "transportation" in result.lower() or "fuel" in result.lower()
+        db.close()
+
+    def test_default_all_on_track(self):
+        """When dominant category is not Savings/Wants/Transportation and all on track."""
+        from app.services.insight_engine import get_personalized_insight
+
+        db = _create_test_session()
+        user = _create_user(db)
+
+        food_cat = _create_category(db, user.id, "Food")
+        # Budget well within limit
+        self._create_budget_with_period(db, user.id, food_cat.id, limit=50000, spent=10000)
+
+        w_food = self._create_weight(db, user.id, "Food", 50.00)
+        w_savings = self._create_weight(db, user.id, "Savings", 30.00)
+        w_wants = self._create_weight(db, user.id, "Wants", 20.00)
+
+        profile = {"employment_status": "working", "commute_method": "none_remote", "vehicle_type": None, "profile_completed": True}
+        weights = [w_food, w_savings, w_wants]
+
+        result = get_personalized_insight(db, user.id, profile, weights)
+
+        assert "on track" in result.lower() or "doing great" in result.lower()
+        db.close()

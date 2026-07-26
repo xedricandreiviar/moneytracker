@@ -45,7 +45,7 @@ This plan implements the Daily Money Tracker PWA from project scaffolding throug
     - Implement amount validator (positive, correct decimal precision per currency)
     - _Requirements: 14.2, 14.3, 14.4, 14.5, 14.6, 14.9_
 
-  - [ ]* 1.5 Write property tests for LocaleService (backend - Hypothesis)
+  - [x]* 1.5 Write property tests for LocaleService (backend - Hypothesis)
     - **Property 1: Amount formatting round-trip**
     - **Property 2: Amount validation by locale**
     - **Property 16: Timestamp UTC round-trip**
@@ -60,7 +60,7 @@ This plan implements the Daily Money Tracker PWA from project scaffolding throug
     - Create `src/components/CurrencyDisplay.tsx` — integer → locale-formatted display string
     - _Requirements: 3.8, 14.3, 14.4, 14.5, 14.6_
 
-  - [ ]* 1.7 Write property tests for frontend locale utilities (fast-check)
+  - [x]* 1.7 Write property tests for frontend locale utilities (fast-check)
     - **Property 1: Amount formatting round-trip (CurrencyDisplay + AmountInput)**
     - **Property 2: Amount validation by locale (AmountInput component)**
     - **Property 18: Date formatting by locale**
@@ -94,7 +94,7 @@ This plan implements the Daily Money Tracker PWA from project scaffolding throug
     - Return 422 with field-level errors for invalid amounts (indicating currency constraints)
     - _Requirements: 3.1, 3.4, 3.5, 3.6, 13.3, 13.4_
 
-  - [ ]* 3.3 Write property test for frequent categories (backend - Hypothesis)
+  - [x]* 3.3 Write property test for frequent categories (backend - Hypothesis)
     - **Property 6: Frequent categories top-N**
     - **Validates: Requirements 3.5**
 
@@ -121,7 +121,7 @@ This plan implements the Daily Money Tracker PWA from project scaffolding throug
     - Allow single-tap override; record override for future priority
     - _Requirements: 4.1, 4.2, 4.3, 4.4_
 
-  - [ ]* 4.3 Write property test for category suggestion (backend - Hypothesis)
+  - [x]* 4.3 Write property test for category suggestion (backend - Hypothesis)
     - **Property 7: Category suggestion pattern matching**
     - **Validates: Requirements 4.1, 4.3, 4.4**
 
@@ -142,7 +142,7 @@ This plan implements the Daily Money Tracker PWA from project scaffolding throug
     - Grace period: 24-hour window; only most recent missed day recoverable
     - _Requirements: 1.6, 2.1, 2.2, 2.3, 2.5_
 
-  - [ ]* 5.3 Write property tests for streak and daily task (backend - Hypothesis)
+  - [x]* 5.3 Write property tests for streak and daily task (backend - Hypothesis)
     - **Property 3: Streak state machine correctness**
     - **Property 4: Grace period remaining time calculation**
     - **Property 5: Daily task completion on transaction**
@@ -181,7 +181,7 @@ This plan implements the Daily Money Tracker PWA from project scaffolding throug
     - Use idempotency keys (budget_id + period_start + threshold) to prevent duplicates
     - _Requirements: 8.3, 8.4_
 
-  - [ ]* 7.3 Write property tests for budget logic (backend - Hypothesis)
+  - [x]* 7.3 Write property tests for budget logic (backend - Hypothesis)
     - **Property 10: Budget projection and on/off track status**
     - **Property 11: Budget threshold notifications fire exactly once per crossing**
     - **Property 12: Budget period rollover preserves limit**
@@ -218,7 +218,7 @@ This plan implements the Daily Money Tracker PWA from project scaffolding throug
     - Enforce at-most-one alert per category per week via SpikeSuppression table
     - _Requirements: 6.1, 6.2, 6.5_
 
-  - [ ]* 8.3 Write property tests for insights (backend - Hypothesis)
+  - [x]* 8.3 Write property tests for insights (backend - Hypothesis)
     - **Property 8: Periodic summary aggregation**
     - **Property 9: Spending spike detection**
     - **Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.5, 5.7, 6.1, 6.2, 6.5**
@@ -258,7 +258,7 @@ This plan implements the Daily Money Tracker PWA from project scaffolding throug
     - Store CoachingSuggestion records (status: pending, accepted, dismissed)
     - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5_
 
-  - [ ]* 10.3 Write property tests for AI eligibility and coaching (backend - Hypothesis)
+  - [x]* 10.3 Write property tests for AI eligibility and coaching (backend - Hypothesis)
     - **Property 13: AI data eligibility filtering**
     - **Property 14: Budget deviation detection and re-surfacing logic**
     - **Validates: Requirements 9.3, 9.4, 10.1, 10.4, 10.5**
@@ -294,7 +294,7 @@ This plan implements the Daily Money Tracker PWA from project scaffolding throug
     - Enforce at-most-one reminder per day per user
     - _Requirements: 12.1, 12.2, 12.3, 12.4_
 
-  - [ ]* 11.2 Write property test for daily reminder (backend - Hypothesis)
+  - [x]* 11.2 Write property test for daily reminder (backend - Hypothesis)
     - **Property 15: Daily reminder at-most-once**
     - **Validates: Requirements 12.2**
 
@@ -353,7 +353,7 @@ This plan implements the Daily Money Tracker PWA from project scaffolding throug
     - Display historical amounts using stored currency_code (not new locale's currency)
     - _Requirements: 14.7, 14.8_
 
-  - [ ]* 14.2 Write property test for historical currency preservation (backend - Hypothesis)
+  - [x]* 14.2 Write property test for historical currency preservation (backend - Hypothesis)
     - **Property 20: Historical currency preservation on locale change**
     - **Validates: Requirements 14.8**
 
@@ -373,7 +373,7 @@ This plan implements the Daily Money Tracker PWA from project scaffolding throug
     - Graceful degradation when service worker registration fails (app continues without offline support)
     - _Requirements: 13.2, 14.10_
 
-  - [ ]* 15.3 Write integration tests for critical flows
+  - [x]* 15.3 Write integration tests for critical flows
     - Transaction save and read-back from database
     - Budget creation → transaction → projection update → threshold notification
     - Daily task generation via scheduler at midnight
@@ -382,6 +382,202 @@ This plan implements the Daily Money Tracker PWA from project scaffolding throug
     - _Requirements: 3.4, 7.2, 1.1, 14.7, 9.6_
 
 - [x] 16. Final checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 17. User profile, category weights, and data layer
+  - [x] 17.1 Add profile fields to User model and create new models + Alembic migration
+    - Add columns to User model: `employment_status` (nullable enum: student, working, both), `commute_method` (nullable enum: public_transit, own_vehicle, walking_biking, none_remote), `vehicle_type` (nullable enum: motorcycle, car), `profile_completed` (boolean, default False)
+    - Create `CategoryWeight` model: id, user_id (FK), category_name (string, unique per user), weight_percentage (Decimal 4,2), is_manual_override (boolean, default False), created_at_utc, updated_at_utc
+    - Create `BudgetLimitChangeLog` model: id, budget_id (FK), old_limit_smallest_unit (int), new_limit_smallest_unit (int), reason (string), source_transaction_id (FK to Transaction), created_at_utc
+    - Generate new Alembic migration (002_profile_weights_changelog.py) applying all schema changes
+    - Update `backend/app/models/__init__.py` to export new models
+    - _Requirements: 15.4, 16.1, 16.7, 17.3_
+
+  - [x] 17.2 Create Pydantic schemas for profile, weights, and dashboard
+    - Create `backend/app/schemas/profile.py`: LifestyleProfileInput (employment_status, commute_method, vehicle_type), LifestyleProfileResponse
+    - Create `backend/app/schemas/weight.py`: CategoryWeightResponse, CategoryWeightOverrideRequest (category_name, new_percentage), WeightListResponse
+    - Create `backend/app/schemas/dashboard.py`: PeriodSummaryResponse (period_type, total_income, total_expenses, balance, category_breakdown), PersonalizedInsightResponse
+    - Add validation: vehicle_type required only when commute_method = own_vehicle; weight percentage between 0 and 100 exclusive
+    - _Requirements: 15.2, 15.3, 16.1, 18.2_
+
+  - [x] 17.3 Implement Weight_Rules_Table as configurable structure
+    - Create `backend/app/services/weight_rules.py` with `WEIGHT_RULES_TABLE` dictionary
+    - Key structure: Tuple[employment_status, commute_method, Optional[vehicle_type]]
+    - Value: Dict[str, Decimal] mapping category_name → weight_percentage
+    - Use placeholder Decimal values (structure is final, numbers are configurable)
+    - Include all 15 profile combinations (3 employment × 5 commute variants)
+    - Ensure every entry includes at minimum: Savings, Wants, Transportation, Food
+    - Include fallback logic: equal distribution if lookup key not found
+    - _Requirements: 16.2, 16.3_
+
+- [x] 18. Backend services for profile and category weights
+  - [x] 18.1 Implement ProfileService
+    - Create `backend/app/services/profile_service.py`
+    - `get_profile(user_id)` → reads employment_status, commute_method, vehicle_type from User
+    - `update_profile(user_id, profile_input)` → validates input, stores on User record, sets profile_completed=True, calls `CategoryWeightService.recompute_weights(user_id)`
+    - Validate: vehicle_type must be None unless commute_method = own_vehicle
+    - _Requirements: 15.4, 15.5, 15.6_
+
+  - [x] 18.2 Implement CategoryWeightService
+    - Create `backend/app/services/category_weight_service.py`
+    - `get_weights(user_id)` → returns all CategoryWeight entries for user
+    - `derive_defaults(profile)` → pure function: looks up Weight_Rules_Table, returns list of CategoryWeight dicts summing to 100%
+    - `recompute_weights(user_id)` → fetches profile, calls derive_defaults, replaces non-manually-overridden entries, redistributes to maintain 100% sum, persists
+    - `override_weight(user_id, category_name, new_percentage)` → sets specified category to new_percentage, redistributes remaining non-overridden categories proportionally, marks is_manual_override=True, validates sum=100%, persists
+    - `validate_weights(weights)` → asserts sum == Decimal("100.00")
+    - Use Decimal arithmetic throughout (no floats)
+    - Handle edge case: all other categories manually overridden → return 422 error
+    - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 16.7_
+
+  - [x]* 18.3 Write property tests for profile and weights (backend - Hypothesis)
+    - **Property 21: Profile persistence and weight recomputation trigger**
+    - **Property 22: Category weight sum invariant**
+    - **Property 23: Default weight derivation includes minimum categories**
+    - **Property 24: Manual weight override redistributes proportionally and flags correctly**
+    - **Validates: Requirements 15.4, 15.6, 16.1, 16.2, 16.3, 16.5, 16.6, 16.7**
+
+- [x] 19. Dynamic budget recalculation on income
+  - [x] 19.1 Extend BudgetService with recalculate_on_income method
+    - Add `recalculate_on_income(user_id, income_transaction)` to existing `backend/app/services/budget_service.py`
+    - For each active budget with a matching CategoryWeight entry: new_limit = floor(weight_percentage / 100 × available_balance)
+    - Compute available_balance as sum(received) - sum(spent) across all user transactions
+    - Only update budgets where new_limit != old_limit
+    - Create BudgetLimitChangeLog entry atomically with each budget limit update
+    - Log reason: f"Income received: {amount} from transaction #{transaction_id}"
+    - Existing projection/on-track logic (Property 10) continues unchanged with dynamic limit
+    - Do NOT modify stored CategoryWeight percentages
+    - _Requirements: 17.1, 17.2, 17.3, 17.4_
+
+  - [x] 19.2 Wire income transaction to budget recalculation trigger
+    - In TransactionService.create_transaction (or transaction API endpoint): after persisting a transaction with direction="received", call `BudgetService.recalculate_on_income(user_id, transaction)`
+    - Ensure recalculation runs within the same request (no async job needed — limits change immediately)
+    - After recalculation, trigger existing budget threshold notification logic for any budgets whose new limits cross 80%/100% thresholds
+    - _Requirements: 17.1, 17.3_
+
+  - [x]* 19.3 Write property tests for budget recalculation (backend - Hypothesis)
+    - **Property 25: Budget recalculation on income preserves weight percentages**
+    - **Property 26: Budget limit change audit logging**
+    - **Validates: Requirements 17.1, 17.2, 17.3**
+
+- [x] 20. Checkpoint - Profile, weights, and recalculation backend complete
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 21. API endpoints for profile, weights, and dashboard
+  - [x] 21.1 Create profile API endpoints
+    - `GET /api/profile` → returns current LifestyleProfile (or 404 if not set)
+    - `PUT /api/profile` → creates or updates profile; triggers weight recomputation; returns updated profile
+    - Add profile onboarding gate middleware: if user.profile_completed=False and route is not /api/profile or /api/settings/locale, return 403 with message "Profile onboarding required"
+    - _Requirements: 15.1, 15.4, 15.5_
+
+  - [x] 21.2 Create weights API endpoints
+    - `GET /api/weights` → returns all CategoryWeight entries for user
+    - `PUT /api/weights/{category_name}` → manually override a single weight; returns updated full weight list
+    - `POST /api/weights/reset` → clears all manual overrides, recomputes from profile defaults; returns new weight list
+    - Return 422 if override would leave no categories available for redistribution
+    - Return 400 if profile not completed (weights cannot be derived)
+    - _Requirements: 16.1, 16.4, 16.5, 16.6_
+
+  - [x] 21.3 Create dashboard API endpoints
+    - `GET /api/dashboard/summary?period={daily|weekly|monthly}` → returns PeriodSummary scoped to selected period
+    - `GET /api/dashboard/insight` → returns personalized insight string based on user profile and weights
+    - Period summary delegates to existing InsightEngine methods for weekly/monthly; adds daily aggregation path
+    - Personalized insight selects contextual tip based on highest-weight category and current spending
+    - _Requirements: 18.1, 18.2, 18.3, 18.4_
+
+  - [x]* 21.4 Write property test for period-scoped dashboard (backend - Hypothesis)
+    - **Property 27: Period-scoped dashboard aggregation**
+    - **Validates: Requirements 18.2**
+
+- [x] 22. Extend InsightEngine for period-scoped queries and personalized insights
+  - [x] 22.1 Add period-scoped summary method to InsightEngine
+    - Add `get_period_summary(user_id, period_type, reference_date)` to existing `backend/app/services/insight_engine.py`
+    - For "daily": aggregate transactions for the reference_date only
+    - For "weekly": delegate to existing `generate_weekly_summary`
+    - For "monthly": delegate to existing `generate_monthly_summary`
+    - Return unified PeriodSummary structure for all period types
+    - Do NOT duplicate aggregation logic — call existing methods
+    - _Requirements: 18.2, 18.3_
+
+  - [x] 22.2 Add personalized insight method to InsightEngine
+    - Add `get_personalized_insight(user_id, profile, weights)` to existing `backend/app/services/insight_engine.py`
+    - Logic: find user's highest-weight category, compare spending against budget limit, generate contextual tip
+    - Savings-focused tip if Savings weight is highest and savings goal not met
+    - Spending moderation tip if Wants weight is highest and approaching limit
+    - Transportation tip if Transportation is highest (vehicle owner)
+    - Default: generic encouragement based on overall on-track status
+    - _Requirements: 18.4_
+
+- [x] 23. Frontend - Profile onboarding and settings
+  - [x] 23.1 Implement ProfileOnboardingPage
+    - Create `frontend/src/pages/ProfileOnboardingPage.tsx`
+    - Form fields: employment_status radio group (Student, Working, Both), commute_method radio group (Public Transit, Own Vehicle, Walking/Biking, None/Remote)
+    - Conditional field: vehicle_type selector (Motorcycle, Car) shown only when commute_method = "own_vehicle"
+    - On submit: PUT /api/profile → on success navigate to main dashboard
+    - Display after locale onboarding completes, gate dashboard access until profile_completed
+    - Add to React Router after OnboardingPage route
+    - _Requirements: 15.1, 15.2, 15.3_
+
+  - [x] 23.2 Implement ProfileSettings component
+    - Create `frontend/src/pages/ProfileSettings.tsx`
+    - Accessible from SettingsPage
+    - Display current profile values, allow editing with same conditional vehicle_type logic
+    - On save: PUT /api/profile → show success confirmation, weights recomputed in background
+    - _Requirements: 15.5, 15.6_
+
+  - [x] 23.3 Implement WeightSettings component
+    - Create `frontend/src/pages/WeightSettings.tsx`
+    - Accessible from SettingsPage
+    - Display all CategoryWeight entries with current percentages (formatted as XX.XX%)
+    - Allow manual override: input field per category with "Save" action
+    - Show redistribution preview before confirmation (call API to validate, display new values)
+    - Visually flag manually-overridden entries (e.g., badge or different color)
+    - "Reset to defaults" button → POST /api/weights/reset
+    - _Requirements: 16.4, 16.5, 16.7_
+
+- [x] 24. Frontend - Extended HomePage with period selector
+  - [-] 24.1 Add period selector and dashboard summary to HomePage
+    - Add dropdown at top of existing HomePage: Daily | Weekly | Monthly (default: Daily)
+    - Below selector: display current balance, total income, total expenses for selected period
+    - Fetch data from GET /api/dashboard/summary?period={selected}
+    - Display per-category budget list using existing BudgetCard component
+    - Reuse existing CurrencyDisplay for all amounts
+    - Maintain existing HomePage widgets (StreakBadge, DailyTaskBanner, NotificationBanner)
+    - _Requirements: 18.1, 18.2, 18.5_
+
+  - [x] 24.2 Add personalized insight banner to HomePage
+    - Fetch from GET /api/dashboard/insight
+    - Display one insight banner at the top of the dashboard (below period selector, above budget cards)
+    - Style consistent with existing BudgetCard/NotificationBanner components
+    - Show contextual tip driven by Lifestyle_Profile
+    - Handle loading/error states gracefully (hide banner if insight unavailable)
+    - _Requirements: 18.4, 18.5_
+
+- [x] 25. Checkpoint - Full integration of Requirements 15-18
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 26. Integration wiring and final verification
+  - [x] 26.1 Wire onboarding flow end-to-end
+    - Verify flow: Locale onboarding → Profile onboarding → Dashboard
+    - Ensure profile_completed gate blocks dashboard access correctly
+    - Ensure weight derivation triggers on first profile submission
+    - Test: new user → select country → fill profile → see dashboard with budget cards reflecting derived weights
+    - _Requirements: 15.1, 15.6, 16.3_
+
+  - [x] 26.2 Wire income transaction → recalculation → notification flow
+    - Verify: log income transaction → budgets recalculated → change logs created → BudgetCard updated → threshold notifications fire if applicable
+    - Test with multiple active budgets and varying weight distributions
+    - Ensure existing budget projection logic works correctly with dynamic limits
+    - _Requirements: 17.1, 17.3, 17.4_
+
+  - [ ]* 26.3 Write integration tests for Requirements 15-18 flows
+    - Profile submission → weight derivation → budget creation flow
+    - Income transaction → budget recalculation → change log creation → notification
+    - Period selector switch → correct aggregation scoping
+    - Weight override → redistribution → budget limit recalculation cascade
+    - Profile edit → weight recomputation for non-overridden categories only
+    - _Requirements: 15.6, 16.5, 17.1, 18.2_
+
+- [x] 27. Final checkpoint - Requirements 15-18 complete
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes
@@ -430,7 +626,19 @@ This plan implements the Daily Money Tracker PWA from project scaffolding throug
     { "id": 25, "tasks": ["14.1"] },
     { "id": 26, "tasks": ["14.2", "15.1"] },
     { "id": 27, "tasks": ["15.2"] },
-    { "id": 28, "tasks": ["15.3"] }
+    { "id": 28, "tasks": ["15.3"] },
+    { "id": 29, "tasks": ["17.1", "17.2", "17.3"] },
+    { "id": 30, "tasks": ["18.1", "18.2"] },
+    { "id": 31, "tasks": ["18.3", "19.1"] },
+    { "id": 32, "tasks": ["19.2", "19.3"] },
+    { "id": 33, "tasks": ["21.1", "21.2", "22.1"] },
+    { "id": 34, "tasks": ["21.3", "22.2"] },
+    { "id": 35, "tasks": ["21.4", "23.1"] },
+    { "id": 36, "tasks": ["23.2", "23.3"] },
+    { "id": 37, "tasks": ["24.1"] },
+    { "id": 38, "tasks": ["24.2"] },
+    { "id": 39, "tasks": ["26.1", "26.2"] },
+    { "id": 40, "tasks": ["26.3"] }
   ]
 }
 ```

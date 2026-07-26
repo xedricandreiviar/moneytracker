@@ -1,8 +1,8 @@
 /**
  * HomePage — Main dashboard showing daily task status, streak, notifications,
- * budget summaries, and quick navigation.
- * Integrates StreakBadge, DailyTaskBanner, NotificationBanner, and BudgetCard components.
- * Requirements: 1.2, 7.1, 7.2, 12.1
+ * personalized insight, budget summaries, and quick navigation.
+ * Integrates StreakBadge, DailyTaskBanner, NotificationBanner, InsightBanner, and BudgetCard components.
+ * Requirements: 1.2, 7.1, 7.2, 12.1, 18.4, 18.5
  */
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -16,12 +16,32 @@ import { type BudgetData } from '../components/BudgetCard';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
+interface InsightData {
+  insight_text: string;
+  category_focus: string | null;
+}
+
 export default function HomePage() {
   const navigate = useNavigate();
   const { locale } = useLocale();
 
   const [budgets, setBudgets] = useState<BudgetData[]>([]);
   const [budgetsLoading, setBudgetsLoading] = useState(true);
+
+  const [insight, setInsight] = useState<InsightData | null>(null);
+  const [insightReady, setInsightReady] = useState(false);
+
+  const fetchInsight = useCallback(async () => {
+    try {
+      const response = await axios.get<InsightData>(`${API_BASE}/api/dashboard/insight`);
+      setInsight(response.data);
+    } catch {
+      // Hide banner if insight unavailable (error, 400, or network issue)
+      setInsight(null);
+    } finally {
+      setInsightReady(true);
+    }
+  }, []);
 
   const fetchBudgets = useCallback(async () => {
     try {
@@ -37,18 +57,20 @@ export default function HomePage() {
 
   useEffect(() => {
     fetchBudgets();
-  }, [fetchBudgets]);
+    fetchInsight();
+  }, [fetchBudgets, fetchInsight]);
 
-  // Refresh budgets when page gains focus (covers returning from QuickAdd)
+  // Refresh budgets and insight when page gains focus (covers returning from QuickAdd)
   useEffect(() => {
     function handleVisibilityChange() {
       if (document.visibilityState === 'visible') {
         fetchBudgets();
+        fetchInsight();
       }
     }
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [fetchBudgets]);
+  }, [fetchBudgets, fetchInsight]);
 
   return (
     <div className="page page-home" style={styles.page}>
@@ -62,6 +84,23 @@ export default function HomePage() {
 
       {/* Unread notifications banner (Req 12.1) */}
       <NotificationBanner />
+
+      {/* Personalized insight banner (Req 18.4, 18.5) */}
+      {insightReady && insight && insight.insight_text && (
+        <div
+          style={styles.insightBanner}
+          role="region"
+          aria-label="Personalized insight"
+        >
+          <div style={styles.insightHeader}>
+            <span style={styles.insightIcon} aria-hidden="true">💡</span>
+            <span style={styles.insightTitle}>
+              {insight.category_focus ? `${insight.category_focus} Tip` : 'Insight'}
+            </span>
+          </div>
+          <p style={styles.insightText}>{insight.insight_text}</p>
+        </div>
+      )}
 
       {/* Budget summaries (Req 7.1, 7.2) */}
       {locale && !budgetsLoading && budgets.length > 0 && (
@@ -195,6 +234,37 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '1.5rem',
     fontWeight: '700',
     marginBottom: '0.25rem',
+  },
+
+  // Personalized insight banner (Req 18.4, 18.5)
+  insightBanner: {
+    border: '1px solid #e5e7eb',
+    borderRadius: '10px',
+    padding: '0.75rem 1rem',
+    background: '#fff',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.25rem',
+  },
+  insightHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.375rem',
+  },
+  insightIcon: {
+    fontSize: '1rem',
+    lineHeight: 1,
+  },
+  insightTitle: {
+    fontSize: '0.85rem',
+    fontWeight: '600',
+    color: '#374151',
+  },
+  insightText: {
+    fontSize: '0.8rem',
+    color: '#4b5563',
+    margin: 0,
+    lineHeight: '1.4',
   },
 
   // Budget summaries

@@ -70,7 +70,7 @@ export default function ProfileOnboardingPage() {
     commuteMethod !== null &&
     (!showVehicleType || vehicleType !== null);
 
-  const currencySymbol = locale?.currency_symbol || '₱';
+  const currencySymbol = locale?.symbol || '₱';
   const decimalPrecision = locale?.decimal_precision ?? 2;
 
   function handleCommuteChange(method: CommuteMethod) {
